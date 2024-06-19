@@ -22,33 +22,35 @@ type Entitier[E entity] interface {
 }
 
 type QueryMaker[E entity] interface {
-	Where(*Clause) Entitier[E]
-	Having(*Clause) Entitier[E]
+	Where(whereClause *Clause) Entitier[E]
+	Having(whereClause *Clause) Entitier[E]
 	Select(cols ...string) Entitier[E]
-	Offset(int) Entitier[E]
-	Limit(int) Entitier[E]
+	Offset(value int) Entitier[E]
+	Limit(value int) Entitier[E]
 	OrderBy(name string, desc bool) Entitier[E]
-	GroupBy(string) Entitier[E]
+	GroupBy(name string) Entitier[E]
 	ToSQL() []any
 	IsMany() Entitier[E]
-	Join(any) Entitier[E]
+	Join(arg any) Entitier[E]
 }
 
-type QueryConsumer[E entity] interface {
-	Find(context.Context) ([]E, error)
-	One(context.Context) (E, error)
-	Count(context.Context) (int64, error)
+type QueryConsumer[E entity] interface { //nolint
+	Find(ctx context.Context) ([]E, error)
+	One(ctx context.Context) (E, error)
+	Count(ctx context.Context) (int64, error)
 
-	Insert(context.Context) error
-	Save(context.Context) error
-	InsertBatch(context.Context, []E) error
-	Update(context.Context) error
-	Delete(context.Context) error
+	Insert(ctx context.Context) error
+	Save(ctx context.Context) error
+	InsertBatch(ctx context.Context, entities []E) error
+	// rowsAffected param can be nil
+	Update(ctx context.Context, rowsAffected *int64) error
+	Delete(ctx context.Context) error
 
-	InsertTx(context.Context) (Transaction, error)
-	SaveTx(context.Context) (Transaction, error)
-	UpdateTx(context.Context) (Transaction, error)
-	DeleteTx(context.Context) (Transaction, error)
+	InsertTx(ctx context.Context) (Transaction, error)
+	SaveTx(ctx context.Context) (Transaction, error)
+	// rowsAffected param can be nil
+	UpdateTx(ctx context.Context, rowsAffected *int64) (Transaction, error)
+	DeleteTx(ctx context.Context) (Transaction, error)
 }
 
 type ConflictResovler[E entity] interface {
@@ -423,25 +425,31 @@ func (e *Entity[E]) SaveTx(ctx context.Context) (tx Transaction, err error) {
 	return e.commit()
 }
 
-func (e *Entity[E]) Update(ctx context.Context) error {
+func (e *Entity[E]) Update(ctx context.Context, rowsAffected *int64) error {
 	if e.transaction.tx == nil {
-		return db.WithContext(ctx).
+		res := db.WithContext(ctx).
 			Clauses(e.conflict).
 			Scopes(e.transaction.scopes...).
-			Updates(e.table).Error
+			Updates(e.table)
+
+		if rowsAffected != nil {
+			*rowsAffected = res.RowsAffected
+		}
+
+		return res.Error
 	}
 
-	err := e.transaction.tx.WithContext(ctx).
+	res := e.transaction.tx.WithContext(ctx).
 		Clauses(e.conflict).
 		Scopes(e.transaction.scopes...).
-		Updates(e.table).Error
-	if err != nil {
-		_, rerr := e.rollback(err)
+		Updates(e.table)
+	if res.Error != nil {
+		_, rerr := e.rollback(res.Error)
 		if rerr != nil {
 			return e.joinError(rerr)
 		}
 
-		return e.joinError(err)
+		return e.joinError(res.Error)
 	}
 
 	if e.transaction.commit {
@@ -451,18 +459,26 @@ func (e *Entity[E]) Update(ctx context.Context) error {
 		}
 	}
 
+	if rowsAffected != nil {
+		*rowsAffected = res.RowsAffected
+	}
+
 	return nil
 }
 
-func (e *Entity[E]) UpdateTx(ctx context.Context) (tx Transaction, err error) {
+func (e *Entity[E]) UpdateTx(ctx context.Context, rowsAffected *int64) (tx Transaction, err error) {
 	e.transaction.tx = db.Begin()
 
-	err = e.transaction.tx.WithContext(ctx).
+	res := e.transaction.tx.WithContext(ctx).
 		Clauses(e.conflict).
 		Scopes(e.transaction.scopes...).
-		Updates(e.table).Error
-	if err != nil {
-		return e.rollback(err)
+		Updates(e.table)
+	if res.Error != nil {
+		return e.rollback(res.Error)
+	}
+
+	if rowsAffected != nil {
+		*rowsAffected = res.RowsAffected
 	}
 
 	return e.commit()

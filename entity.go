@@ -70,6 +70,7 @@ type entity interface {
 type Transaction interface {
 	implement()
 	Commit() error
+	Rollback() error
 }
 
 type transaction struct {
@@ -83,6 +84,10 @@ func (t *transaction) implement() {}
 
 func (t *transaction) Commit() error {
 	return t.tx.Commit().Error
+}
+
+func (t *transaction) Rollback() error {
+	return t.tx.Rollback().Error
 }
 
 type Entity[E entity] struct {

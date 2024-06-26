@@ -94,7 +94,7 @@ func (t *transaction) Rollback() error {
 
 type Entity[E entity] struct {
 	transaction *transaction
-	conflict    clause.OnConflict
+	conflict    *clause.OnConflict
 	error       error
 	table       E
 	clause      *Clause
@@ -110,7 +110,7 @@ func SQL[E entity](ent E) Entitier[E] {
 }
 
 func (e *Entity[E]) OnConflict(c clause.OnConflict) Entitier[E] {
-	e.conflict = c
+	e.conflict = &c
 
 	return e
 }
@@ -323,7 +323,12 @@ func (e *Entity[E]) Count(ctx context.Context) (int64, error) {
 
 func (e *Entity[E]) Insert(ctx context.Context, rowsAffected *int64) error {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).Clauses(e.conflict).Create(e.table)
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict).Create(e.table)
+		} else {
+			res = res.Create(e.table)
+		}
 
 		if rowsAffected != nil {
 			*rowsAffected = res.RowsAffected
@@ -332,7 +337,12 @@ func (e *Entity[E]) Insert(ctx context.Context, rowsAffected *int64) error {
 		return res.Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).Clauses(e.conflict).Create(e.table)
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict).Create(e.table)
+	} else {
+		res = res.Create(e.table)
+	}
 	if res.Error != nil {
 		_, rerr := e.rollback(res.Error)
 		if rerr != nil {
@@ -356,16 +366,23 @@ func (e *Entity[E]) Insert(ctx context.Context, rowsAffected *int64) error {
 	return nil
 }
 
-func (e *Entity[E]) Save(ctx context.Context) error {
+func (e *Entity[E]) Save(ctx context.Context) (err error) {
 	if e.transaction.tx == nil {
-		return db.WithContext(ctx).
-			Clauses(e.conflict).
-			Save(e.table).Error
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			return res.Clauses(e.conflict).
+				Save(e.table).Error
+		}
+
+		return res.Save(e.table).Error
 	}
 
-	err := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		Save(e.table).Error
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		err = res.Clauses(e.conflict).Save(e.table).Error
+	} else {
+		err = res.Save(e.table).Error
+	}
 	if err != nil {
 		_, rerr := e.rollback(err)
 		if rerr != nil {
@@ -387,9 +404,12 @@ func (e *Entity[E]) Save(ctx context.Context) error {
 
 func (e *Entity[E]) InsertBatch(ctx context.Context, entities []E, rowsAffected *int64) error {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).
-			Clauses(e.conflict).
-			CreateInBatches(entities, len(entities))
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict).CreateInBatches(entities, len(entities))
+		} else {
+			res = res.CreateInBatches(entities, len(entities))
+		}
 
 		if rowsAffected != nil {
 			*rowsAffected = res.RowsAffected
@@ -398,9 +418,12 @@ func (e *Entity[E]) InsertBatch(ctx context.Context, entities []E, rowsAffected 
 		return res.Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		CreateInBatches(entities, len(entities))
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict).CreateInBatches(entities, len(entities))
+	} else {
+		res = res.CreateInBatches(entities, len(entities))
+	}
 	if res.Error != nil {
 		_, rerr := e.rollback(res.Error)
 		if rerr != nil {
@@ -427,9 +450,12 @@ func (e *Entity[E]) InsertBatch(ctx context.Context, entities []E, rowsAffected 
 func (e *Entity[E]) InsertTx(ctx context.Context, rowsAffected *int64) (tx Transaction, err error) {
 	e.transaction.tx = db.WithContext(ctx).Begin()
 
-	res := e.transaction.tx.
-		Clauses(e.conflict).
-		Create(e.table)
+	res := e.transaction.tx
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict).Create(e.table)
+	} else {
+		res = res.Create(e.table)
+	}
 	if res.Error != nil {
 		return e.rollback(res.Error)
 	}
@@ -444,9 +470,12 @@ func (e *Entity[E]) InsertTx(ctx context.Context, rowsAffected *int64) (tx Trans
 func (e *Entity[E]) SaveTx(ctx context.Context) (tx Transaction, err error) {
 	e.transaction.tx = db.WithContext(ctx).Begin()
 
-	err = e.transaction.tx.
-		Clauses(e.conflict).
-		Save(e.table).Error
+	res := e.transaction.tx
+	if e.conflict != nil {
+		err = res.Clauses(e.conflict).Save(e.table).Error
+	} else {
+		err = res.Save(e.table).Error
+	}
 	if err != nil {
 		return e.rollback(err)
 	}
@@ -456,9 +485,11 @@ func (e *Entity[E]) SaveTx(ctx context.Context) (tx Transaction, err error) {
 
 func (e *Entity[E]) Update(ctx context.Context, rowsAffected *int64) error {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).
-			Clauses(e.conflict).
-			Scopes(e.transaction.scopes...).
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict)
+		}
+		res = res.Scopes(e.transaction.scopes...).
 			Updates(e.table)
 
 		if rowsAffected != nil {
@@ -468,9 +499,11 @@ func (e *Entity[E]) Update(ctx context.Context, rowsAffected *int64) error {
 		return res.Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		Scopes(e.transaction.scopes...).
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+	res = res.Scopes(e.transaction.scopes...).
 		Updates(e.table)
 	if res.Error != nil {
 		_, rerr := e.rollback(res.Error)
@@ -498,10 +531,11 @@ func (e *Entity[E]) Update(ctx context.Context, rowsAffected *int64) error {
 func (e *Entity[E]) UpdateTx(ctx context.Context, rowsAffected *int64) (tx Transaction, err error) {
 	e.transaction.tx = db.Begin()
 
-	res := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		Scopes(e.transaction.scopes...).
-		Updates(e.table)
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+	res = res.Scopes(e.transaction.scopes...).Updates(e.table)
 	if res.Error != nil {
 		return e.rollback(res.Error)
 	}

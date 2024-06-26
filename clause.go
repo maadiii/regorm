@@ -163,6 +163,11 @@ func (w *Clause) ToSQL() []any {
 			where += clause.nextBoolOP
 		}
 
+		if clause.value == nil {
+			where = strings.ReplaceAll(where, "?", "NULL")
+
+			continue
+		}
 		args = append(args, clause.value) //nolint
 	}
 

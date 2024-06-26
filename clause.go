@@ -109,6 +109,20 @@ func (w *Clause) Between(field string, value any) *Clause {
 	return w
 }
 
+func (w *Clause) IsNull(field string) *Clause {
+	w.builder = append(w.builder, IsNull(field).builder...)
+	w.not = false
+
+	return w
+}
+
+func (w *Clause) IsNotNull(field string) *Clause {
+	w.builder = append(w.builder, IsNotNull(field).builder...)
+	w.not = false
+
+	return w
+}
+
 func (w *Clause) AND() *Clause {
 	w.builder[len(w.builder)-1].nextBoolOP = ANDOperator
 
@@ -204,6 +218,14 @@ func Search(fields []string, value, operator string) *Clause {
 	return makeWhereClause("", generateTextSearch(fields, value, operator), nil)
 }
 
+func IsNull(field string) *Clause {
+	return makeWhereClause(ISOperator, field, "NULL")
+}
+
+func IsNotNull(field string) *Clause {
+	return makeWhereClause(ISNOTOperator, field, "NULL")
+}
+
 func makeWhereClause(operator, field string, value any) *Clause {
 	return &Clause{
 		builder: []Builer{
@@ -241,17 +263,19 @@ func removeMultipleSpace(input string) string {
 }
 
 const (
-	EQOperator   = "="
-	GTOperator   = ">"
-	GTEOperator  = ">="
-	LTOperator   = "<"
-	LTEOperator  = "<="
-	INOperator   = "IN"
-	LikeOperator = " LIKE "
-	BetWeen      = " BETWEEN "
-	NOTOperator  = " NOT "
-	OROperator   = " OR "
-	ANDOperator  = " AND "
-	ASCOperator  = " ASC"
-	DESCOperator = " DESC"
+	EQOperator    = "="
+	GTOperator    = ">"
+	GTEOperator   = ">="
+	LTOperator    = "<"
+	LTEOperator   = "<="
+	INOperator    = "IN"
+	LikeOperator  = " LIKE "
+	BetWeen       = " BETWEEN "
+	NOTOperator   = " NOT "
+	OROperator    = " OR "
+	ANDOperator   = " AND "
+	ASCOperator   = " ASC"
+	DESCOperator  = " DESC"
+	ISOperator    = " IS "
+	ISNOTOperator = " IS NOT "
 )

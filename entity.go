@@ -13,7 +13,7 @@ import (
 )
 
 type Entitier[E entity] interface {
-	SQL() Entitier[E]
+	ToSql() Entitier[E]
 
 	QueryMaker[E]
 	QueryConsumer[E]
@@ -31,7 +31,7 @@ type QueryMaker[E entity] interface {
 	Limit(value int) Entitier[E]
 	OrderBy(name string, desc bool) Entitier[E]
 	GroupBy(name string) Entitier[E]
-	ToSQL() []any
+	Args() []any
 	IsMany() Entitier[E]
 	Join(arg any) Entitier[E]
 }
@@ -103,7 +103,7 @@ type Entity[E entity] struct {
 	hasMany     bool
 }
 
-func SQL[E entity](ent E) Entitier[E] {
+func ToSql[E entity](ent E) Entitier[E] {
 	return &Entity[E]{
 		table:       ent,
 		transaction: &transaction{scopes: make([]func(*gorm.DB) *gorm.DB, 0)},
@@ -111,10 +111,10 @@ func SQL[E entity](ent E) Entitier[E] {
 	}
 }
 
-func (e *Entity[E]) SQL() Entitier[E] {
+func (e *Entity[E]) ToSql() Entitier[E] {
 	// type A struct{}
-	// func (a A) SQL() regorm.Entitier[E]{
-	//   return regorm.SQL(a)
+	// func (a A) ToSql() regorm.Entitier[E]{
+	//   return regorm.ToSql(a)
 	// }
 	panic("implement by yourself like above code")
 }
@@ -141,7 +141,7 @@ func (e *Entity[E]) Where(whereClause *Clause) Entitier[E] {
 	e.transaction.scopes = append(
 		e.transaction.scopes,
 		func(db *gorm.DB) *gorm.DB {
-			args := whereClause.ToSQL()
+			args := whereClause.tosql()
 			if len(args) > 1 {
 				return db.Where(args[0], args[1:]...)
 			}
@@ -210,7 +210,7 @@ func (e *Entity[E]) Having(whereClause *Clause) Entitier[E] {
 	e.transaction.scopes = append(
 		e.transaction.scopes,
 		func(db *gorm.DB) *gorm.DB {
-			return db.Having(e.clause.ToSQL())
+			return db.Having(e.clause.tosql())
 		},
 	)
 
@@ -223,7 +223,7 @@ func (e *Entity[E]) IsMany() Entitier[E] {
 	return e
 }
 
-func (e *Entity[E]) ToSQL() []any {
+func (e *Entity[E]) Args() []any {
 	var table string
 
 	if e.hasMany {
@@ -235,8 +235,8 @@ func (e *Entity[E]) ToSQL() []any {
 
 	args := []any{table}
 
-	if len(e.clause.ToSQL()) > 1 {
-		args = append(args, e.clause.ToSQL()...)
+	if len(e.clause.tosql()) > 1 {
+		args = append(args, e.clause.tosql()...)
 	}
 
 	return args
@@ -246,10 +246,10 @@ func (e *Entity[E]) Join(arg any) Entitier[E] {
 	var args []any
 
 	if _, ok := arg.(*Clause); ok {
-		args = e.ToSQL()
+		args = e.Args()
 	} else {
 		v := newVar(arg).(entity)
-		args = SQL(v).ToSQL()
+		args = ToSql(v).Args()
 	}
 
 	table := args[0].(string)

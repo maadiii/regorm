@@ -147,7 +147,7 @@ func (w *Clause) IsNotNull(field string) *Clause {
 	return w
 }
 
-func (w *Clause) ToSQL() []any {
+func (w *Clause) tosql() []any {
 	args := make([]any, 1)
 
 	var where string

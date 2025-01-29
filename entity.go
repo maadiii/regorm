@@ -13,6 +13,8 @@ import (
 )
 
 type Entitier[E entity] interface {
+	SQL() Entitier[E]
+
 	QueryMaker[E]
 	QueryConsumer[E]
 	RawExecutor[E]
@@ -107,6 +109,14 @@ func SQL[E entity](ent E) Entitier[E] {
 		transaction: &transaction{scopes: make([]func(*gorm.DB) *gorm.DB, 0)},
 		clause:      &Clause{builder: make([]Builer, 0)},
 	}
+}
+
+func (e *Entity[E]) SQL() Entitier[E] {
+	// type A struct{}
+	// func (a A) SQL() regorm.Entitier[E]{
+	//   return regorm.SQL(a)
+	// }
+	panic("implement by yourself like above code")
 }
 
 func (e *Entity[E]) OnConflict(c clause.OnConflict) Entitier[E] {

@@ -40,6 +40,7 @@ type QueryConsumer[E entity] interface { //nolint
 	Find(ctx context.Context) ([]E, error)
 	One(ctx context.Context) (E, error)
 	Count(ctx context.Context) (int64, error)
+	Exists(ctx context.Context) (bool, error)
 
 	Insert(ctx context.Context, rowsAffected *int64) error
 	Save(ctx context.Context) error
@@ -329,6 +330,20 @@ func (e *Entity[E]) Count(ctx context.Context) (int64, error) {
 	}
 
 	return count, nil
+}
+
+func (e *Entity[E]) Exists(ctx context.Context) (bool, error) {
+	var count int64
+
+	err := db.WithContext(ctx).
+		Model(e.table).
+		Scopes(e.transaction.scopes...).
+		Count(&count).Error
+	if err != nil {
+		return false, e.joinError(err)
+	}
+
+	return count > 0, nil
 }
 
 func (e *Entity[E]) Insert(ctx context.Context, rowsAffected *int64) error {

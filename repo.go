@@ -97,7 +97,7 @@ func (t *transaction) Rollback() error {
 
 type repository[E entity] struct {
 	transaction *transaction
-	conflict    clause.OnConflict
+	conflict    *clause.OnConflict
 	error       error
 	entity      E
 	clause      *Clause
@@ -113,7 +113,7 @@ func NewRepository[E entity](ent E) Repository[E] {
 }
 
 func (e *repository[E]) OnConflict(c clause.OnConflict) Repository[E] {
-	e.conflict = c
+	e.conflict = &c
 
 	return e
 }
@@ -349,24 +349,29 @@ func (e *repository[E]) Exists(ctx context.Context) (bool, error) {
 
 func (e *repository[E]) Insert(ctx context.Context, entity E) error {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).Clauses(e.conflict).Create(entity)
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict)
+		}
 
-		return res.Error
+		return res.Create(entity).Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).Clauses(e.conflict).Create(entity)
-	if res.Error != nil {
-		_, rerr := e.rollback(res.Error)
-		if rerr != nil {
-			return e.joinError(rerr)
+	res := db.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	if res.Create(entity).Error != nil {
+		if _, err := e.rollback(res.Error); err != nil {
+			return e.joinError(err)
 		}
 
 		return e.joinError(res.Error)
 	}
 
 	if e.transaction.commit {
-		_, err := e.commit()
-		if err != nil {
+		if _, err := e.commit(); err != nil {
 			return e.joinError(err)
 		}
 	}
@@ -376,28 +381,31 @@ func (e *repository[E]) Insert(ctx context.Context, entity E) error {
 
 func (e *repository[E]) Save(ctx context.Context, entity E) (rowsAffected int64, err error) {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).
-			Clauses(e.conflict).
-			Save(entity)
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict)
+		}
+
+		res.Save(entity)
 
 		return res.RowsAffected, res.Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		Save(entity)
-	if res.Error != nil {
-		_, rerr := e.rollback(err)
-		if rerr != nil {
-			return 0, e.joinError(rerr)
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	if res.Save(entity).Error != nil {
+		if _, err = e.rollback(res.Error); err != nil {
+			return 0, e.joinError(err)
 		}
 
-		return 0, e.joinError(err)
+		return 0, e.joinError(res.Error)
 	}
 
 	if e.transaction.commit {
-		_, err := e.commit()
-		if err != nil {
+		if _, err := e.commit(); err != nil {
 			return 0, e.joinError(err)
 		}
 	}
@@ -407,28 +415,31 @@ func (e *repository[E]) Save(ctx context.Context, entity E) (rowsAffected int64,
 
 func (e *repository[E]) InsertBatch(ctx context.Context, entities []E) (rowsAffected int64, err error) {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).
-			Clauses(e.conflict).
-			CreateInBatches(entities, len(entities))
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict)
+		}
+
+		res.CreateInBatches(entities, len(entities))
 
 		return res.RowsAffected, res.Error
 	}
 
-	res := e.transaction.tx.WithContext(ctx).
-		Clauses(e.conflict).
-		CreateInBatches(entities, len(entities))
-	if res.Error != nil {
-		_, rerr := e.rollback(res.Error)
-		if rerr != nil {
-			return 0, e.joinError(rerr)
+	res := e.transaction.tx.WithContext(ctx)
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	if res.CreateInBatches(entities, len(entities)).Error != nil {
+		if _, err = e.rollback(res.Error); err != nil {
+			return 0, e.joinError(err)
 		}
 
 		return 0, e.joinError(res.Error)
 	}
 
 	if e.transaction.commit {
-		_, err := e.commit()
-		if err != nil {
+		if _, err = e.commit(); err != nil {
 			return 0, e.joinError(err)
 		}
 	}
@@ -439,10 +450,12 @@ func (e *repository[E]) InsertBatch(ctx context.Context, entities []E) (rowsAffe
 func (e *repository[E]) InsertTx(ctx context.Context, entity E) (tx Transaction, rowsAffected int64, err error) {
 	e.transaction.tx = db.WithContext(ctx).Begin()
 
-	res := e.transaction.tx.
-		Clauses(e.conflict).
-		Create(entity)
-	if res.Error != nil {
+	res := e.transaction.tx
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	if res.Create(entity).Error != nil {
 		tx, err = e.rollback(res.Error)
 
 		return tx, 0, err
@@ -456,11 +469,13 @@ func (e *repository[E]) InsertTx(ctx context.Context, entity E) (tx Transaction,
 func (e *repository[E]) SaveTx(ctx context.Context, entity E) (tx Transaction, rowsAffected int64, err error) {
 	e.transaction.tx = db.WithContext(ctx).Begin()
 
-	res := e.transaction.tx.
-		Clauses(e.conflict).
-		Save(entity)
-	if res.Error != nil {
-		tx, err = e.rollback(err)
+	res := e.transaction.tx
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	if res.Save(entity).Error != nil {
+		tx, err = e.rollback(res.Error)
 
 		return tx, 0, err
 	}
@@ -472,10 +487,12 @@ func (e *repository[E]) SaveTx(ctx context.Context, entity E) (tx Transaction, r
 
 func (e *repository[E]) Update(ctx context.Context, entity E) (rowsAffected int64, err error) {
 	if e.transaction.tx == nil {
-		res := db.WithContext(ctx).
-			Clauses(e.conflict).
-			Scopes(e.transaction.scopes...).
-			Updates(entity)
+		res := db.WithContext(ctx)
+		if e.conflict != nil {
+			res = res.Clauses(e.conflict)
+		}
+
+		res.Scopes(e.transaction.scopes...).Updates(entity)
 
 		return res.RowsAffected, res.Error
 	}
@@ -485,9 +502,8 @@ func (e *repository[E]) Update(ctx context.Context, entity E) (rowsAffected int6
 		Scopes(e.transaction.scopes...).
 		Updates(entity)
 	if res.Error != nil {
-		_, rerr := e.rollback(res.Error)
-		if rerr != nil {
-			return 0, e.joinError(rerr)
+		if _, err := e.rollback(res.Error); err != nil {
+			return 0, e.joinError(err)
 		}
 
 		return 0, e.joinError(res.Error)
@@ -534,9 +550,8 @@ func (e *repository[E]) Delete(ctx context.Context) (rowsAffected int64, err err
 		Scopes(e.transaction.scopes...).
 		Delete(e.entity)
 	if res.Error != nil {
-		_, rerr := e.rollback(res.Error)
-		if rerr != nil {
-			return 0, e.joinError(rerr)
+		if _, err := e.rollback(res.Error); err != nil {
+			return 0, e.joinError(err)
 		}
 
 		return 0, e.joinError(res.Error)

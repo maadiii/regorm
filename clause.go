@@ -163,7 +163,11 @@ func (w *Clause) tosql() []any {
 			where += clause.nextBoolOP
 		}
 
-		args = append(args, clause.value) //nolint
+		if clause.value != nil {
+			args = append(args, clause.value) //nolint
+		} else {
+			args = append(args, "NULL") //nolint
+		}
 	}
 
 	args[0] = where

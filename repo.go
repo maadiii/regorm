@@ -452,9 +452,12 @@ func (e *repository[E]) InsertTx(ctx context.Context, entity E) (tx Transaction,
 
 	res = res.Create(entity)
 	if res.Error != nil {
-		tx, err = e.rollback(res.Error)
+		_, err = e.rollback(res.Error)
+		if err != nil {
+			return nil, 0, e.joinError(err)
+		}
 
-		return tx, 0, err
+		return nil, 0, err
 	}
 
 	tx, err = e.commit()
@@ -475,9 +478,12 @@ func (e *repository[E]) SaveTx(ctx context.Context, entity E) (tx Transaction, r
 
 	res = res.Save(entity)
 	if res.Error != nil {
-		tx, err = e.rollback(res.Error)
+		_, err = e.rollback(res.Error)
+		if err != nil {
+			return nil, 0, e.joinError(err)
+		}
 
-		return tx, 0, err
+		return nil, 0, err
 	}
 
 	tx, err = e.commit()
@@ -498,9 +504,12 @@ func (e *repository[E]) InsertBatchTx(ctx context.Context, entities []E) (tx Tra
 
 	res = res.CreateInBatches(entities, len(entities))
 	if res.Error != nil {
-		tx, err = e.rollback(res.Error)
+		_, err = e.rollback(res.Error)
+		if err != nil {
+			return nil, 0, e.joinError(err)
+		}
 
-		return tx, 0, err
+		return nil, 0, err
 	}
 
 	tx, err = e.commit()
@@ -550,9 +559,12 @@ func (e *repository[E]) UpdateTx(ctx context.Context, entity E) (tx Transaction,
 		Scopes(e.transaction.scopes...).
 		Updates(entity)
 	if res.Error != nil {
-		tx, err = e.rollback(res.Error)
+		_, err = e.rollback(res.Error)
+		if err != nil {
+			return nil, 0, e.joinError(err)
+		}
 
-		return tx, 0, err
+		return nil, 0, err
 	}
 
 	tx, err = e.commit()
@@ -597,9 +609,12 @@ func (e *repository[E]) DeleteTx(ctx context.Context) (tx Transaction, rowsAffec
 		Scopes(e.transaction.scopes...).
 		Delete(e.entity)
 	if res.Error != nil {
-		tx, err = e.rollback(res.Error)
+		_, err = e.rollback(res.Error)
+		if err != nil {
+			return nil, 0, e.joinError(err)
+		}
 
-		return tx, 0, err
+		return nil, 0, err
 	}
 
 	tx, err = e.commit()

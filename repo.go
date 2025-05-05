@@ -40,19 +40,15 @@ type QueryConsumer[E entity] interface { //nolint
 	Count(ctx context.Context) (int64, error)
 	Exists(ctx context.Context) (bool, error)
 
-	// rowsAffected param can be nil
 	Insert(ctx context.Context, entity E) error
 	Save(ctx context.Context, entity E) (rowsAffected int64, err error)
 	InsertBatch(ctx context.Context, entities []E) (rowsAffected int64, err error)
-	// rowsAffected param can be nil
 	Update(ctx context.Context, entity E) (rowsAffected int64, err error)
-	// rowsAffected param can be nil
 	Delete(ctx context.Context) (rowsAffected int64, err error)
 
-	// rowsAffected param can be nil
 	InsertTx(ctx context.Context, entity E) (tx Transaction, rowsAffected int64, err error)
 	SaveTx(ctx context.Context, entity E) (tx Transaction, rowsAffected int64, err error)
-	// rowsAffected param can be nil
+	InsertBatchTx(ctx context.Context, entities []E) (tx Transaction, rowsAffected int64, err error)
 	UpdateTx(ctx context.Context, entity E) (tx Transaction, rowsAffected int64, err error)
 	// rowsAffected param can be nil
 	DeleteTx(ctx context.Context) (tx Transaction, rowsAffected int64, err error)
@@ -354,7 +350,9 @@ func (e *repository[E]) Insert(ctx context.Context, entity E) error {
 			res = res.Clauses(e.conflict)
 		}
 
-		return res.Create(entity).Error
+		res = res.Create(entity)
+
+		return res.Error
 	}
 
 	res := db.WithContext(ctx)
@@ -362,7 +360,8 @@ func (e *repository[E]) Insert(ctx context.Context, entity E) error {
 		res = res.Clauses(e.conflict)
 	}
 
-	if res.Create(entity).Error != nil {
+	res = res.Create(entity)
+	if res.Error != nil {
 		if _, err := e.rollback(res.Error); err != nil {
 			return e.joinError(err)
 		}
@@ -370,10 +369,8 @@ func (e *repository[E]) Insert(ctx context.Context, entity E) error {
 		return e.joinError(res.Error)
 	}
 
-	if e.transaction.commit {
-		if _, err := e.commit(); err != nil {
-			return e.joinError(err)
-		}
+	if _, err := e.commit(); err != nil {
+		return e.joinError(err)
 	}
 
 	return nil
@@ -386,7 +383,7 @@ func (e *repository[E]) Save(ctx context.Context, entity E) (rowsAffected int64,
 			res = res.Clauses(e.conflict)
 		}
 
-		res.Save(entity)
+		res = res.Save(entity)
 
 		return res.RowsAffected, res.Error
 	}
@@ -396,7 +393,8 @@ func (e *repository[E]) Save(ctx context.Context, entity E) (rowsAffected int64,
 		res = res.Clauses(e.conflict)
 	}
 
-	if res.Save(entity).Error != nil {
+	res = res.Save(entity)
+	if res.Error != nil {
 		if _, err = e.rollback(res.Error); err != nil {
 			return 0, e.joinError(err)
 		}
@@ -404,10 +402,8 @@ func (e *repository[E]) Save(ctx context.Context, entity E) (rowsAffected int64,
 		return 0, e.joinError(res.Error)
 	}
 
-	if e.transaction.commit {
-		if _, err := e.commit(); err != nil {
-			return 0, e.joinError(err)
-		}
+	if _, err := e.commit(); err != nil {
+		return 0, e.joinError(err)
 	}
 
 	return res.RowsAffected, nil
@@ -420,7 +416,7 @@ func (e *repository[E]) InsertBatch(ctx context.Context, entities []E) (rowsAffe
 			res = res.Clauses(e.conflict)
 		}
 
-		res.CreateInBatches(entities, len(entities))
+		res = res.CreateInBatches(entities, len(entities))
 
 		return res.RowsAffected, res.Error
 	}
@@ -430,7 +426,8 @@ func (e *repository[E]) InsertBatch(ctx context.Context, entities []E) (rowsAffe
 		res = res.Clauses(e.conflict)
 	}
 
-	if res.CreateInBatches(entities, len(entities)).Error != nil {
+	res = res.CreateInBatches(entities, len(entities))
+	if res.Error != nil {
 		if _, err = e.rollback(res.Error); err != nil {
 			return 0, e.joinError(err)
 		}
@@ -438,10 +435,8 @@ func (e *repository[E]) InsertBatch(ctx context.Context, entities []E) (rowsAffe
 		return 0, e.joinError(res.Error)
 	}
 
-	if e.transaction.commit {
-		if _, err = e.commit(); err != nil {
-			return 0, e.joinError(err)
-		}
+	if _, err = e.commit(); err != nil {
+		return 0, e.joinError(err)
 	}
 
 	return res.RowsAffected, nil
@@ -455,13 +450,17 @@ func (e *repository[E]) InsertTx(ctx context.Context, entity E) (tx Transaction,
 		res = res.Clauses(e.conflict)
 	}
 
-	if res.Create(entity).Error != nil {
+	res = res.Create(entity)
+	if res.Error != nil {
 		tx, err = e.rollback(res.Error)
 
 		return tx, 0, err
 	}
 
 	tx, err = e.commit()
+	if err != nil {
+		return nil, 0, errors.Join(err)
+	}
 
 	return tx, res.RowsAffected, err
 }
@@ -474,13 +473,40 @@ func (e *repository[E]) SaveTx(ctx context.Context, entity E) (tx Transaction, r
 		res = res.Clauses(e.conflict)
 	}
 
-	if res.Save(entity).Error != nil {
+	res = res.Save(entity)
+	if res.Error != nil {
 		tx, err = e.rollback(res.Error)
 
 		return tx, 0, err
 	}
 
 	tx, err = e.commit()
+	if err != nil {
+		return nil, 0, errors.Join(err)
+	}
+
+	return tx, res.RowsAffected, err
+}
+
+func (e *repository[E]) InsertBatchTx(ctx context.Context, entities []E) (tx Transaction, rowsAffected int64, err error) {
+	e.transaction.tx = db.WithContext(ctx).Begin()
+
+	res := e.transaction.tx
+	if e.conflict != nil {
+		res = res.Clauses(e.conflict)
+	}
+
+	res = res.CreateInBatches(entities, len(entities))
+	if res.Error != nil {
+		tx, err = e.rollback(res.Error)
+
+		return tx, 0, err
+	}
+
+	tx, err = e.commit()
+	if err != nil {
+		return nil, 0, errors.Join(err)
+	}
 
 	return tx, res.RowsAffected, err
 }
@@ -509,11 +535,8 @@ func (e *repository[E]) Update(ctx context.Context, entity E) (rowsAffected int6
 		return 0, e.joinError(res.Error)
 	}
 
-	if e.transaction.commit {
-		_, err := e.commit()
-		if err != nil {
-			return 0, e.joinError(err)
-		}
+	if _, err := e.commit(); err != nil {
+		return 0, e.joinError(err)
 	}
 
 	return res.RowsAffected, nil
@@ -533,6 +556,9 @@ func (e *repository[E]) UpdateTx(ctx context.Context, entity E) (tx Transaction,
 	}
 
 	tx, err = e.commit()
+	if err != nil {
+		return nil, 0, errors.Join(err)
+	}
 
 	return tx, res.RowsAffected, err
 }
@@ -557,11 +583,8 @@ func (e *repository[E]) Delete(ctx context.Context) (rowsAffected int64, err err
 		return 0, e.joinError(res.Error)
 	}
 
-	if e.transaction.commit {
-		_, err := e.commit()
-		if err != nil {
-			return 0, e.joinError(err)
-		}
+	if _, err := e.commit(); err != nil {
+		return 0, e.joinError(err)
 	}
 
 	return res.RowsAffected, nil
@@ -580,6 +603,9 @@ func (e *repository[E]) DeleteTx(ctx context.Context) (tx Transaction, rowsAffec
 	}
 
 	tx, err = e.commit()
+	if err != nil {
+		return nil, 0, errors.Join(err)
+	}
 
 	return tx, res.RowsAffected, err
 }

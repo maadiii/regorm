@@ -3,7 +3,6 @@ package regorm
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 
 	"golang.org/x/text/cases"
@@ -31,7 +30,7 @@ type QueryMaker[E entity] interface {
 	GroupBy(name string) Repository[E]
 	Args() []any
 	IsMany() Repository[E]
-	Join(arg any) Repository[E]
+	Join(ent entity) Repository[E]
 }
 
 type QueryConsumer[E entity] interface { //nolint
@@ -80,8 +79,6 @@ type transaction struct {
 	commit    bool
 	savePoint string
 }
-
-func (t *transaction) implement() {}
 
 func (t *transaction) Commit() error {
 	return t.tx.Commit().Error
@@ -215,12 +212,8 @@ func (e *repository[E]) IsMany() Repository[E] {
 func (e *repository[E]) Args() []any {
 	var table string
 
-	if e.hasMany {
-		title := cases.Title(language.English, cases.NoLower)
-		table = title.String(e.entity.TableName())
-	} else {
-		table = reflect.ValueOf(e.entity).Elem().Type().Name()
-	}
+	title := cases.Title(language.English, cases.NoLower)
+	table = title.String(e.entity.TableName())
 
 	args := []any{table}
 
@@ -231,25 +224,8 @@ func (e *repository[E]) Args() []any {
 	return args
 }
 
-func (e *repository[E]) Join(arg any) Repository[E] {
-	var args []any
-
-	switch t := arg.(type) {
-	case *Clause:
-		args = e.Args()
-	case entity:
-		args = NewRepository(t).Args()
-	default:
-		panic("arg param just accept *Clause or entity type")
-	}
-
-	// if _, ok := arg.(*Clause); ok {
-	// 	args = e.Args()
-	// } else {
-	// 	v := newVar(arg).(entity)
-	// 	args = NewRepository(v).Args()
-	// }
-
+func (e *repository[E]) Join(ent entity) Repository[E] {
+	args := NewRepository(ent).Args()
 	table := args[0].(string)
 
 	if len(args) > 1 {
@@ -278,7 +254,7 @@ func (e *repository[E]) Join(arg any) Repository[E] {
 		e.transaction.scopes = append(
 			e.transaction.scopes,
 			func(db *gorm.DB) *gorm.DB {
-				return db.Joins(table, db.Where(stmt, args[2:])) //nolint
+				return db.Joins(table, db.Where(stmt, args[2:]))
 			},
 		)
 	} else {
@@ -707,8 +683,4 @@ func (e *repository[E]) joinError(err error) error {
 	return e.error
 }
 
-func newVar(v any) entity {
-	t := reflect.TypeOf(v)
-
-	return reflect.New(t.Elem()).Interface().(entity)
-}
+func (t *transaction) implement() {}
